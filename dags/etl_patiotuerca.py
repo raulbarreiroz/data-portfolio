@@ -12,7 +12,9 @@ from src.loaders.sqlite_loader import SQLiteLoader
 @dag(
     dag_id='etl_patiotuerca',
     start_date=datetime(2026, 3, 19),
-    schedule='@daily',
+    schedule="0 */2 * * *", # every 2 hours
+    #schedule="*/10 * * * *", # every 10 minutes
+    #schedule='@daily',
     catchup=False,
     default_args={"retries": 2, "retry_delay": timedelta(minutes=2)},
     tags=['etl', 'patiotuerca', 'portfolio'],
@@ -43,7 +45,8 @@ def etl_patiotuerca() -> None:
     @task
     def load_task(
         df_json: str,
-        db_url: str = "sqlite:///patiotuerca.sqlite",
+        # db_url: str = "sqlite:///patiotuerca.sqlite", # sqlite
+        db_url: str = "postgresql+psycopg2://app_user:app_pass@app-postgres:5432/portfolio",
         table_name: str = "patiotuerca_vehicles",
     ) -> int:
         records: List[Dict[str, Any]] = json.loads(df_json)
@@ -56,4 +59,4 @@ def etl_patiotuerca() -> None:
     transformed: str = transform_task(raw)
     _loaded: int = load_task(transformed)
 
-dag_instance = etl_patiotuerca()
+etl_patiotuerca()
