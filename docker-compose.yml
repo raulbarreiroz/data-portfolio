@@ -17,6 +17,15 @@ x-airflow-common: &airflow-common
     - postgres
 
 services:
+  app-postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_pass
+      POSTGRES_DB: portfolio_db
+    ports:
+      - "5434:5432"
+
   postgres:
     image: postgres:15
     environment:

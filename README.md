@@ -9,13 +9,16 @@ End-to-end data pipeline project to extract vehicle listings, transform them int
 - Run locally in Docker with reproducible setup.
 - Prepare architecture to swap data sources (scraping/API) and storage backends (SQLite/PostgreSQL).
 - Showcase portfolio-ready engineering practices.
+- Persist ETL outputs in both SQLite (local fallback) and PostgreSQL (portfolio target DB).
 
 ## Tech Stack
 
 - Python: `requests`, `pandas`, `sqlalchemy`, `beautifulsoup4`
 - Apache Airflow
-- PostgreSQL (Airflow metadata DB)
-- SQLite (current app target DB; PostgreSQL app DB is next step)
+- PostgreSQL:
+  - Airflow metadata DB (`airflow`)
+  - App target DB (`portfolio`)
+- SQLite (local app DB fallback)
 - Docker / Docker Compose
 
 ## Architecture
@@ -25,9 +28,11 @@ flowchart LR
   AF[Airflow DAG: etl_patiotuerca] --> E[Connector: PatiotuercaConnector]
   E --> T[Transformer: PatiotuercaTransformer]
   T --> J[JSON Snapshot]
-  T --> L[Loader: SQLiteLoader]
-  L --> DB[(App DB)]
-  AF --> META[(Airflow Metadata DB - PostgreSQL)]
+  T --> L1[SQLiteLoader]
+  T --> L2[PostgresLoader]
+  L1 --> DB1[(SQLite: patiotuerca.sqlite)]
+  L2 --> DB2[(PostgreSQL: portfolio.patiotuerca_vehicles)]
+  AF --> META[(Airflow Metadata DB - PostgreSQL/airflow)]
 ```
 
 ## Quick start (local, no Airflow)
@@ -40,10 +45,19 @@ venv\Scripts\activate
 # source venv/bin/activate
 
 pip install -r requirements.txt
-python main.py --max_urls_counter=1 --max_data_length=10
+python main.py
+# or 
+python main.py --max_urls_counter=1 --max_data_length=10 \
+  --sqlite_db_url sqlite:///patiotuerca.sqlite \
+  --postgres_db_url postgresql+psycopg2://app_user:app_pass@localhost:5434/portfolio \
+  --table_name patiotuerca_vehicles
 ```
 
-Outputs: `patiotuerca.json` (raw snapshot) and rows in `patiotuerca.sqlite` (if loader runs).
+Outputs:
+
+- patiotuerca.json (raw snapshot)
+- Rows in patiotuerca.sqlite
+- Rows in PostgreSQL table patiotuerca_vehicles
 
 ## Airflow flow (Docker)
 
@@ -70,6 +84,20 @@ docker compose up -d
 3. Verify tasks `extract_task → transform_task → load_task` are green
 4. Open task logs for each step; confirm DB / file updates as expected
 
+**4. PostgreSQL checks**
+
+Connect with pgAdmin:
+- host: localhost
+- port: 5434
+- user: app_user
+- password: app_pass
+- db: portfolio
+
+### Validate inserts:
+SELECT COUNT(*) FROM patiotuerca_vehicles;
+
 **4. Evidence (portfolio)**
 
 - Screenshot: `docs/screenshots/airflow_dag_success.png`
+- DAG run logs (success)
+- PostgreSQL row-count proof (SELECT COUNT(*))
