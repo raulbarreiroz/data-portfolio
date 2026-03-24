@@ -182,6 +182,20 @@ docker compose up -d --force-recreate airflow-webserver airflow-scheduler
 aws s3 ls s3://rb-data-portfolio-dev/patiotuerca/ --recursive
 ```
 
+### Lambda: validate, dedupe, and write `validated/`
+
+An optional **AWS Lambda** (`lambda/s3_validate_transform/`) can run on **S3 ObjectCreated** events for keys under the processed prefix (for example `patiotuerca/processed/`). It reads each JSON array, normalizes numeric fields, and writes enriched rows to **`patiotuerca/validated/<same-filename>.json`** (override with env `OUTPUT_PREFIX`).
+
+**Validation:** Each row gets `is_valid` when `title` and `price` are present after normalization.
+
+**Duplicate detection (within the same file / invocation):**
+
+- Primary key: `item_hash` from the Airflow transform (aligned with SQLite/Postgres `UNIQUE` semantics).
+- Fallback: a composite of normalized `title`, `brand`, `model`, `year`, `price`, `mileage`, and `image` when `item_hash` is missing.
+- The **first** occurrence of a key is kept as `is_duplicate: false`. Later rows with the same key get `is_duplicate: true` and **`is_valid` is set to `false`** so downstream loads can skip them without extra dedupe logic.
+
+**Deploy note:** Package `lambda_function.py` at the zip root (or set the handler to `lambda_function.handler` / `lambda_function.lambda_handler`). Ensure the Lambda execution role can `s3:GetObject` on the source prefix and `s3:PutObject` on `patiotuerca/validated/` (or your `OUTPUT_PREFIX`).
+
 ## 4. Evidence (portfolio)
 
 - Screenshot: `docs/screenshots/airflow_dag_success.png`
@@ -189,3 +203,13 @@ aws s3 ls s3://rb-data-portfolio-dev/patiotuerca/ --recursive
 - PostgreSQL row-count proof (SELECT COUNT(*))
 - Short note on IAM least-privilege permissions used.
 
+## 5. Known Technologies (Not Implemented Yet in This Portfolio)
+
+#### AWS Glue (managed ETL / catalog)
+Use Glue for larger-scale transformations, schema cataloging, and integration with analytics workloads.
+
+#### EC2 for Airflow
+Use EC2 when full control of Airflow infrastructure is required (custom runtime, plugins, system-level tuning).
+
+#### MWAA (Managed Airflow)
+Use MWAA for production-grade managed orchestration with reduced operational overhead and AWS-native integration.
