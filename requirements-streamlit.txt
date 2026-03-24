@@ -1,0 +1,5 @@
+# Dashboard: streamlit run streamlit_app/app.py
+streamlit>=1.28.0
+pandas>=2.0.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9

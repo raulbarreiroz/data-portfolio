@@ -1,69 +1,67 @@
-# Data Portfolio - Patiotuerca ETL
+# Patiotuerca ETL
 
-End-to-end data pipeline project to extract vehicle listings, transform them into a canonical dataset, and load them into a database, orchestrated with Apache Airflow and containerized with Docker.
+Python pipeline that extracts vehicle listings from Patiotuerca (HTML), normalizes them with **pandas**, loads **SQLite** and **PostgreSQL**, stages JSON to **Amazon S3**, and serves a read-only **Streamlit** app on top of Postgres. **Apache Airflow** schedules the work in **Docker Compose**; **GitHub Actions** runs Ruff, pytest, and Airflow DAG import checks on `master`.
 
-## Project Goals
+## Features
 
-- Build a modular ETL pipeline in Python.
-- Orchestrate ETL with Airflow (DAG + retries + logs).
-- Run locally in Docker with reproducible setup.
-- Prepare architecture to swap data sources (scraping/API) and storage backends (SQLite/PostgreSQL).
-- Showcase portfolio-ready engineering practices.
-- Persist ETL outputs in both SQLite (local fallback) and PostgreSQL (portfolio target DB).
-
-## Tech Stack
-
-- Python: `requests`, `pandas`, `sqlalchemy`, `beautifulsoup4`
-- Apache Airflow
-- PostgreSQL:
-  - Airflow metadata DB (`airflow`)
-  - App target DB (`portfolio`)
-- SQLite (local app DB fallback)
-- Docker / Docker Compose
+- Scraping connector (`requests`, `BeautifulSoup`) and transform layer with stable `item_hash`
+- Dual-target loaders (SQLAlchemy); target table `patiotuerca_vehicles`
+- DAG `etl_patiotuerca`: extract → transform → S3 staging → load (S3 skipped when `S3_BUCKET` is unset)
+- Optional Lambda: S3-triggered validation, in-batch dedupe, writes `patiotuerca/validated/`
+- Streamlit dashboard: row counts, brand filter, recent rows (parameterized reads only)
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  AF[Airflow DAG: etl_patiotuerca] --> E[Connector: PatiotuercaConnector]
-  E --> T[Transformer: PatiotuercaTransformer]
-  T --> J[JSON Snapshot]
+  AF[Airflow DAG] --> E[Connector]
+  E --> T[Transformer]
   T --> L1[SQLiteLoader]
   T --> L2[PostgresLoader]
-  L1 --> DB1[(SQLite: patiotuerca.sqlite)]
-  L2 --> DB2[(PostgreSQL: portfolio.patiotuerca_vehicles)]
-  AF --> META[(Airflow Metadata DB - PostgreSQL/airflow)]
+  T --> S3[S3 raw + processed]
+  S3 -. optional .-> LM[Lambda]
+  LM -.-> S3V[S3 validated]
+  L1 --> DB1[(SQLite)]
+  L2 --> DB2[(PostgreSQL)]
+  AF --> META[(Airflow metadata)]
+  DB2 --> ST[Streamlit]
 ```
 
+## Stack
 
+Python 3.11 · Airflow 2.10.x (see `Dockerfile.airflow`) · Postgres · SQLite · Docker Compose · boto3 · Streamlit · GitHub Actions
 
-## Quick start (local, no Airflow)
+## Prerequisites
+
+- Docker and Docker Compose (for Airflow + app Postgres)
+- Python 3.11+ (for local ETL, tests, Streamlit)
+- Optional: AWS account and S3 bucket for staging and Lambda
+
+## Run the ETL locally (no Airflow)
 
 ```bash
 python -m venv venv
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-# source venv/bin/activate
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
 
 pip install -r requirements.txt
 python main.py
-# or 
+```
+
+With explicit database URLs (bash line continuation uses `\`):
+
+```bash
 python main.py --max_urls_counter=1 --max_data_length=10 \
   --sqlite_db_url sqlite:///patiotuerca.sqlite \
   --postgres_db_url postgresql+psycopg2://app_user:app_pass@localhost:5434/portfolio \
   --table_name patiotuerca_vehicles
 ```
 
-Outputs:
+On Windows CMD, use `^` instead of `\` for line breaks.
 
-- patiotuerca.json (raw snapshot)
-- Rows in patiotuerca.sqlite
-- Rows in PostgreSQL table patiotuerca_vehicles
+Outputs: `patiotuerca.json`, `patiotuerca.sqlite`, and rows in Postgres table `patiotuerca_vehicles`.
 
-## Airflow flow (Docker)
-
-## 1. Build and start
+## Run with Airflow (Docker)
 
 ```bash
 docker compose down -v
@@ -72,147 +70,70 @@ docker compose up airflow-init
 docker compose up -d
 ```
 
-## 2. Open Airflow UI
+UI: `http://127.0.0.1:8081` — user `airflow`, password `airflow`.
 
-- URL: `http://127.0.0.1:8081`
-- Default user:
-  - username: `airflow`
-  - password: `airflow`
+Enable the DAG `etl_patiotuerca` and trigger a run. Task flow: `extract_task` → `transform_task` → `stage_to_s3_task` → `load_task`.
 
-## 3. Run the DAG
-
-1. Unpause DAG `etl_patiotuerca`
-2. **Trigger DAG** (play)
-3. Verify tasks `extract_task → transform_task → load_task` are green
-4. Open task logs for each step; confirm DB / file updates as expected
-5. PostgreSQL checks
-
-### 4.1 Start app-postgres container (setup before pgAdmin)
+### Application PostgreSQL
 
 ```bash
 docker compose up -d app-postgres
-docker compose ps
 ```
 
-### 4.2 Create the portfolio database (first time only)
+Create the application database once (replace container name with the one from `docker compose ps`):
 
 ```bash
 docker exec -it data-portfolio-app-postgres-1 psql -U app_user -d postgres -c "CREATE DATABASE portfolio;"
 ```
 
-#### Optional check:
+Connection: `localhost`, port **5434**, database `portfolio`, user `app_user`, password `app_pass`.
 
-```bash
-docker exec -it data-portfolio-app-postgres-1 psql -U app_user -d postgres -c "\l"
-```
+## Amazon S3
 
-### Connect with pgAdmin:
+Airflow loads AWS settings from `.env` (see Compose `env_file` for scheduler/webserver). Variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `S3_BUCKET`.
 
-- Host: localhost
-- Port: 5434
-- Maintenance DB: postgres (or portfolio)
-- Username: app_user
-- Password: app_pass
-
-### Validate inserts:
-
-```bash
-SELECT COUNT(*) FROM patiotuerca_vehicles;
-```
-
-## AWS S3 Staging (Step 4)
-
-S3 staging is integrated in the Airflow DAG through `stage_to_s3_task`.
-
-### What it does
-
-- Uploads raw extracted payload to S3:
-  - `patiotuerca/raw/<timestamp>.json`
-- Uploads transformed payload to S3:
-  - `patiotuerca/processed/<timestamp>.json`
-
-### Why this is useful
-
-- Keeps immutable raw history for reprocessing and auditing.
-- Separates staging storage (S3) from serving storage (PostgreSQL).
-- Improves pipeline observability and recovery options.
-
-### Required environment variables
-
-These values are loaded in Airflow containers via `.env`:
-
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_DEFAULT_REGION`
-- `S3_BUCKET`
-
-Example `.env`:
-
-```bash
-AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
-AWS_DEFAULT_REGION=us-east-1
-S3_BUCKET=rb-data-portfolio-dev
-```
-
-#### Docker Compose requirement
-
-In x-airflow-common, ensure:
-
-env_file: [".env"]
-
-Then recreate Airflow services:
-
-```bash
-docker compose up -d --force-recreate airflow-webserver airflow-scheduler
-```
-
-#### How to validate
-
-1. Trigger DAG etl_patiotuerca.
-2. Verify stage_to_s3_task is green.
-3. Check S3 bucket contains:
+Objects written by the DAG:
 
 - `patiotuerca/raw/<timestamp>.json`
 - `patiotuerca/processed/<timestamp>.json`
 
-1. Optional CLI check:
+Restart Airflow services after editing `.env`.
+
+### Lambda (optional)
+
+Package `lambda/s3_validate_transform/lambda_function.py` for an S3 `ObjectCreated` rule on `patiotuerca/processed/`. Handler: `lambda_function.lambda_handler` or `lambda_function.handler`. Environment: `OUTPUT_PREFIX` (default `patiotuerca/validated/`). IAM: `s3:GetObject` on the processed prefix, `s3:PutObject` on the validated prefix.
+
+## Streamlit
 
 ```bash
-aws s3 ls s3://rb-data-portfolio-dev/patiotuerca/ --recursive
+pip install -r requirements-streamlit.txt
+export DATABASE_URL=postgresql+psycopg2://app_user:app_pass@127.0.0.1:5434/portfolio   # bash
+streamlit run streamlit_app/app.py
 ```
 
-### Lambda: validate, dedupe, and write `validated/`
+Windows: `set DATABASE_URL=...` before `streamlit run`.
 
-An optional **AWS Lambda** (`lambda/s3_validate_transform/`) can run on **S3 ObjectCreated** events for keys under the processed prefix (for example `patiotuerca/processed/`). It reads each JSON array, normalizes numeric fields, and writes enriched rows to **`patiotuerca/validated/<same-filename>.json`** (override with env `OUTPUT_PREFIX`).
+Connection resolution order: environment variable `DATABASE_URL`, then Streamlit secrets key `DATABASE_URL`, then a local default. Optional: `PATIOTUERCA_TABLE` (default `patiotuerca_vehicles`). For Amazon RDS, use the same SQLAlchemy URL form with the instance endpoint and credentials.
 
-**Validation:** Each row gets `is_valid` when `title` and `price` are present after normalization.
+## Continuous integration
 
-**Duplicate detection (within the same file / invocation):**
+Workflow `.github/workflows/ci.yml` on push and pull request to `master`:
 
-- Primary key: `item_hash` from the Airflow transform (aligned with SQLite/Postgres `UNIQUE` semantics).
-- Fallback: a composite of normalized `title`, `brand`, `model`, `year`, `price`, `mileage`, and `image` when `item_hash` is missing.
-- The **first** occurrence of a key is kept as `is_duplicate: false`. Later rows with the same key get `is_duplicate: true` and **`is_valid` is set to `false`** so downstream loads can skip them without extra dedupe logic.
+- Ruff (lint + format check) on `src`, `dags`, `main.py`, `tests`, `lambda`
+- pytest
+- `airflow db init` and `airflow dags list-import-errors` (Airflow 2.10.x)
 
-**Deploy note:** Package `lambda_function.py` at the zip root (or set the handler to `lambda_function.handler` / `lambda_function.lambda_handler`). Ensure the Lambda execution role can `s3:GetObject` on the source prefix and `s3:PutObject` on `patiotuerca/validated/` (or your `OUTPUT_PREFIX`).
+## Development
 
-## 4. Evidence (portfolio)
+```bash
+pip install -r requirements-dev.txt pandas
+set PYTHONPATH=.    # Windows
+# export PYTHONPATH=.   # Unix
+pytest -q
+ruff check src dags main.py tests lambda
+ruff format --check src dags main.py tests lambda
+```
 
-- Screenshot: `docs/screenshots/airflow_dag_success.png`
-- DAG run logs (success)
-- PostgreSQL row-count proof (SELECT COUNT(*))
-- Short note on IAM least-privilege permissions used.
+## Security
 
-## 5. Known Technologies (Not Implemented Yet in This Portfolio)
-
-#### AWS Glue (managed ETL / catalog)
-Use Glue for larger-scale transformations, schema cataloging, and integration with analytics workloads.
-
-#### EC2 for Airflow
-Use EC2 when full control of Airflow infrastructure is required (custom runtime, plugins, system-level tuning).
-
-#### MWAA (Managed Airflow)
-Use MWAA for production-grade managed orchestration with reduced operational overhead and AWS-native integration.
-
-## 6. CI
-GitHub Actions runs Ruff, pytest, and airflow dags list-import-errors on push/PR.
+Do not commit `.env` or `.streamlit/secrets.toml`. Restrict IAM policies to the bucket paths you use; prefer short-lived or scoped credentials over broad root keys.
