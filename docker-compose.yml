@@ -4,6 +4,8 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: Dockerfile.airflow
+  env_file:
+    - .env
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"
@@ -15,6 +17,7 @@ x-airflow-common: &airflow-common
     - ./:/opt/airflow
   depends_on:
     - postgres
+    - app-postgres
 
 services:
   app-postgres:
