@@ -1,4 +1,5 @@
 import sqlite3
+
 import pandas as pd
 
 
@@ -47,9 +48,22 @@ class SQLiteLoader:
             _ensure_table(conn, table_name)
 
             insert_cols = [
-                "item_hash", "scraped_at", "inserted_at", "source_url", "title", "image",
-                "fullPrice", "price", "year", "plan", "brand", "model", "location",
-                "type", "mileage", "raw_json",
+                "item_hash",
+                "scraped_at",
+                "inserted_at",
+                "source_url",
+                "title",
+                "image",
+                "fullPrice",
+                "price",
+                "year",
+                "plan",
+                "brand",
+                "model",
+                "location",
+                "type",
+                "mileage",
+                "raw_json",
             ]
 
             missing = [c for c in insert_cols if c not in df.columns]

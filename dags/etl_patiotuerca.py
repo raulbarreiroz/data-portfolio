@@ -1,26 +1,27 @@
-from typing import Any, Dict, List
-from datetime import datetime, timedelta
 import json
 import os
+from datetime import datetime, timedelta
+from typing import Any
 
 import boto3
 import pandas as pd
 from airflow.decorators import dag, task
 
 from src.connectors.patiotuerca.connector import PatiotuercaConnector
-from src.transforms.patiotuerca import PatiotuercaTransformer
-from src.loaders.sqlite_loader import SQLiteLoader
 from src.loaders.postgres_loader import PostgresLoader
+from src.loaders.sqlite_loader import SQLiteLoader
+from src.transforms.patiotuerca import PatiotuercaTransformer
+
 
 @dag(
-    dag_id='etl_patiotuerca',
+    dag_id="etl_patiotuerca",
     start_date=datetime(2026, 3, 19),
-    schedule="0 */2 * * *", # every 2 hours
-    #schedule="*/10 * * * *", # every 10 minutes
-    #schedule='@daily',
+    schedule="0 */2 * * *",  # every 2 hours
+    # schedule="*/10 * * * *", # every 10 minutes
+    # schedule='@daily',
     catchup=False,
     default_args={"retries": 2, "retry_delay": timedelta(minutes=2)},
-    tags=['etl', 'patiotuerca', 'portfolio', 's3'],
+    tags=["etl", "patiotuerca", "portfolio", "s3"],
 )
 def etl_patiotuerca() -> None:
     @task
@@ -30,7 +31,7 @@ def etl_patiotuerca() -> None:
         timeout: int = 10,
     ) -> str:
         connector = PatiotuercaConnector()
-        rows: List[Dict[str, Any]] = connector.extract(
+        rows: list[dict[str, Any]] = connector.extract(
             max_urls_counter=max_urls_counter,
             max_data_length=max_data_length,
             timeout=timeout,
@@ -39,7 +40,7 @@ def etl_patiotuerca() -> None:
 
     @task
     def transform_task(rows_json: str) -> str:
-        rows: List[Dict[str, Any]] = json.loads(rows_json)
+        rows: list[dict[str, Any]] = json.loads(rows_json)
         df_raw: pd.DataFrame = pd.DataFrame(rows)
         transformer = PatiotuercaTransformer()
         df_final: pd.DataFrame = transformer.transform(df_raw)
@@ -73,6 +74,7 @@ def etl_patiotuerca() -> None:
             ContentType="application/json",
         )
         return f"s3://{bucket}/{s3_prefix}/"
+
     @task
     def load_task(
         df_json: str,
@@ -80,7 +82,7 @@ def etl_patiotuerca() -> None:
         postgres_db_url: str = "postgresql+psycopg2://app_user:app_pass@app-postgres:5432/portfolio",
         table_name: str = "patiotuerca_vehicles",
     ) -> int:
-        records: List[Dict[str, Any]] = json.loads(df_json)
+        records: list[dict[str, Any]] = json.loads(df_json)
         df = pd.DataFrame(records)
         sqlite_loader = SQLiteLoader()
         postgres_loader = PostgresLoader()
@@ -92,5 +94,6 @@ def etl_patiotuerca() -> None:
     transformed = transform_task(raw)
     _s3 = stage_to_s3_task(raw, transformed)
     _loaded = load_task(transformed)
+
 
 etl_patiotuerca()

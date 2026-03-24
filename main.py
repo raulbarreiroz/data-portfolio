@@ -1,13 +1,13 @@
 import argparse
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 
 from src.connectors.patiotuerca.connector import PatiotuercaConnector
-from src.transforms.patiotuerca import PatiotuercaTransformer
-from src.loaders.sqlite_loader import SQLiteLoader
 from src.loaders.postgres_loader import PostgresLoader
+from src.loaders.sqlite_loader import SQLiteLoader
+from src.transforms.patiotuerca import PatiotuercaTransformer
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def save_json(rows: List[Dict[str, Any]], output_json: str) -> None:
+def save_json(rows: list[dict[str, Any]], output_json: str) -> None:
     with open(output_json, "w", encoding="utf-8") as file:
         json.dump(rows, file, ensure_ascii=False, indent=2)
 
@@ -62,6 +62,7 @@ def main() -> None:
     print(f"postgres_db_url={args.postgres_db_url}")
     print(f"table={args.table_name}")
     print("===============================================")
+
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 import pandas as pd
 from sqlalchemy import create_engine
 
+
 class PostgresLoader:
     def load(self, df: pd.DataFrame, db_url: str, table_name: str) -> None:
         if df.empty:

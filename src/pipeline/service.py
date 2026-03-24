@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
@@ -8,7 +9,7 @@ from src.connectors.base import SourceConnector
 def run_pipeline(
     connector: SourceConnector,
     transform_fn: Callable[[pd.DataFrame], pd.DataFrame],
-    load_json_fn: Callable[[List[Dict[str, Any]], str], None],  
+    load_json_fn: Callable[[list[dict[str, Any]], str], None],
     load_sql_fn: Callable[[pd.DataFrame, str, str], None],
     *,
     max_urls_counter: int,
@@ -17,7 +18,7 @@ def run_pipeline(
     output_json: str,
     db_url: str,
     table_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     raw_rows = connector.extract(
         max_urls_counter=max_urls_counter,
         max_data_length=max_data_length,
