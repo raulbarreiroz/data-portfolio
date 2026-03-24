@@ -35,6 +35,8 @@ flowchart LR
   AF --> META[(Airflow Metadata DB - PostgreSQL/airflow)]
 ```
 
+
+
 ## Quick start (local, no Airflow)
 
 ```bash
@@ -61,7 +63,7 @@ Outputs:
 
 ## Airflow flow (Docker)
 
-**1. Build and start**
+## 1. Build and start
 
 ```bash
 docker compose down -v
@@ -70,34 +72,120 @@ docker compose up airflow-init
 docker compose up -d
 ```
 
-**2. Open Airflow UI**
+## 2. Open Airflow UI
 
 - URL: `http://127.0.0.1:8081`
 - Default user:
   - username: `airflow`
   - password: `airflow`
 
-**3. Run the DAG**
+## 3. Run the DAG
 
 1. Unpause DAG `etl_patiotuerca`
 2. **Trigger DAG** (play)
 3. Verify tasks `extract_task → transform_task → load_task` are green
 4. Open task logs for each step; confirm DB / file updates as expected
+5. PostgreSQL checks
 
-**4. PostgreSQL checks**
+### 4.1 Start app-postgres container (setup before pgAdmin)
 
-Connect with pgAdmin:
-- host: localhost
-- port: 5434
-- user: app_user
-- password: app_pass
-- db: portfolio
+```bash
+docker compose up -d app-postgres
+docker compose ps
+```
+
+### 4.2 Create the portfolio database (first time only)
+
+```bash
+docker exec -it data-portfolio-app-postgres-1 psql -U app_user -d postgres -c "CREATE DATABASE portfolio;"
+```
+
+#### Optional check:
+
+```bash
+docker exec -it data-portfolio-app-postgres-1 psql -U app_user -d postgres -c "\l"
+```
+
+### Connect with pgAdmin:
+
+- Host: localhost
+- Port: 5434
+- Maintenance DB: postgres (or portfolio)
+- Username: app_user
+- Password: app_pass
 
 ### Validate inserts:
-SELECT COUNT(*) FROM patiotuerca_vehicles;
 
-**4. Evidence (portfolio)**
+```bash
+SELECT COUNT(*) FROM patiotuerca_vehicles;
+```
+
+## AWS S3 Staging (Step 4)
+
+S3 staging is integrated in the Airflow DAG through `stage_to_s3_task`.
+
+### What it does
+
+- Uploads raw extracted payload to S3:
+  - `patiotuerca/raw/<timestamp>.json`
+- Uploads transformed payload to S3:
+  - `patiotuerca/processed/<timestamp>.json`
+
+### Why this is useful
+
+- Keeps immutable raw history for reprocessing and auditing.
+- Separates staging storage (S3) from serving storage (PostgreSQL).
+- Improves pipeline observability and recovery options.
+
+### Required environment variables
+
+These values are loaded in Airflow containers via `.env`:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_DEFAULT_REGION`
+- `S3_BUCKET`
+
+Example `.env`:
+
+```bash
+AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
+AWS_DEFAULT_REGION=us-east-1
+S3_BUCKET=rb-data-portfolio-dev
+```
+
+#### Docker Compose requirement
+
+In x-airflow-common, ensure:
+
+env_file: [".env"]
+
+Then recreate Airflow services:
+
+```bash
+docker compose up -d --force-recreate airflow-webserver airflow-scheduler
+```
+
+#### How to validate
+
+1. Trigger DAG etl_patiotuerca.
+2. Verify stage_to_s3_task is green.
+3. Check S3 bucket contains:
+
+- `patiotuerca/raw/<timestamp>.json`
+- `patiotuerca/processed/<timestamp>.json`
+
+1. Optional CLI check:
+
+```bash
+aws s3 ls s3://rb-data-portfolio-dev/patiotuerca/ --recursive
+```
+
+## 4. Evidence (portfolio)
 
 - Screenshot: `docs/screenshots/airflow_dag_success.png`
 - DAG run logs (success)
 - PostgreSQL row-count proof (SELECT COUNT(*))
+- Short note on IAM least-privilege permissions used.
+
