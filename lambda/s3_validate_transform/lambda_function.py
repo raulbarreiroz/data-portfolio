@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 from urllib.parse import unquote_plus
 
 import boto3
@@ -17,7 +17,7 @@ def to_int(v: Any) -> int | None:
     return int(s) if s else None
 
 
-def dedupe_key(row: dict[str, Any]) -> str:    
+def dedupe_key(row: dict[str, Any]) -> str:
     h = row.get("item_hash")
     if isinstance(h, str) and h.strip():
         return f"h:{h.strip()}"
@@ -31,7 +31,7 @@ def dedupe_key(row: dict[str, Any]) -> str:
     )
 
 
-def apply_duplicate_flags(rows: List[dict[str, Any]]) -> None:
+def apply_duplicate_flags(rows: list[dict[str, Any]]) -> None:
     seen: set[str] = set()
     for row in rows:
         key = dedupe_key(row)
@@ -42,26 +42,24 @@ def apply_duplicate_flags(rows: List[dict[str, Any]]) -> None:
             row["is_valid"] = False
 
 
-def handler(event: Dict[str, Any], context: Any) -> dict[str, Any]:
-    records: List[Dict[str, Any]] = event.get("Records", [])
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    records: list[dict[str, Any]] = event.get("Records", [])
 
     for record in records:
         bucket: str = record["s3"]["bucket"]["name"]
         key: str = unquote_plus(record["s3"]["object"]["key"])
 
-        obj: Dict[str, Any] = s3.get_object(Bucket=bucket, Key=key)
+        obj: dict[str, Any] = s3.get_object(Bucket=bucket, Key=key)
         body: bytes = obj["Body"].read()
-        data: List[dict[str, Any]] = json.loads(body.decode("utf-8"))
+        data: list[dict[str, Any]] = json.loads(body.decode("utf-8"))
 
-        validated: List[Dict[str, Any]] = []
+        validated: list[dict[str, Any]] = []
         for row in data:
             row["year"] = to_int(row.get("year"))
             row["mileage"] = to_int(row.get("mileage"))
             row["price"] = to_int(row.get("price"))
             row["fullPrice"] = (
-                to_int(row.get("price"))
-                if row.get("fullPrice") is None
-                else row.get("fullPrice")
+                to_int(row.get("price")) if row.get("fullPrice") is None else row.get("fullPrice")
             )
             row["is_valid"] = row.get("title") is not None and row.get("price") is not None
             validated.append(row)

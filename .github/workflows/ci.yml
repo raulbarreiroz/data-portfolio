@@ -1,0 +1,69 @@
+name: CI
+
+on: 
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        python-version: "3.11"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check src dags main.py tests lambda
+
+      - name: Ruff format (check only)
+        run: ruff format --check src dags main.py tests lambda
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime deps for tests
+        run: pip install pandas pytest
+
+      - name: Pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest -q
+
+  airflow-dags:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Airflow (match Dockerfile.airflow)
+      run: |
+          pip install "apache-airflow==2.10.5" \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt"
+
+      - name: Install DAG import dependencies
+        run: |
+          pip install pandas boto3 sqlalchemy psycopg2-binary beautifulsoup4 requests
+      - name: Init Airflow DB + list DAG import errors
+        env:
+          AIRFLOW_HOME: /tmp/airflow_ci
+          AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+          AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/dags
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          airflow db init
+          airflow dags list-import-errors

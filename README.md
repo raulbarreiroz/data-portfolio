@@ -213,3 +213,6 @@ Use EC2 when full control of Airflow infrastructure is required (custom runtime,
 
 #### MWAA (Managed Airflow)
 Use MWAA for production-grade managed orchestration with reduced operational overhead and AWS-native integration.
+
+## 6. CI
+GitHub Actions runs Ruff, pytest, and airflow dags list-import-errors on push/PR.
