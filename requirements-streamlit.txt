@@ -1,4 +1,5 @@
-# Dashboard: streamlit run streamlit_app/app.py
+# Dashboard dependencies (use in a separate venv from requirements.txt)
+# Example: python -m venv .venv-ui && pip install -r requirements-streamlit.txt
 streamlit>=1.28.0
 pandas>=2.0.0
 sqlalchemy>=2.0.0
