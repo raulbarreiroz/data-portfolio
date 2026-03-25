@@ -4,8 +4,11 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: Dockerfile.airflow
+  # Safe defaults from repo; optional .env overrides (e.g. real AWS keys). .env is gitignored.
   env_file:
-    - .env
+    - .env.example
+    - path: .env
+      required: false
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"

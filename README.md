@@ -2,6 +2,8 @@
 
 Python pipeline that extracts vehicle listings from Patiotuerca (HTML), normalizes them with **pandas**, loads **SQLite** and **PostgreSQL**, stages JSON to **Amazon S3**, and serves a read-only **Streamlit** app on top of Postgres. **Apache Airflow** schedules the work in **Docker Compose**; **GitHub Actions** runs Ruff, pytest, and Airflow DAG import checks on `master`.
 
+**First clone:** you can run Docker Compose immediately — it loads **`.env.example`** (empty AWS vars, S3 skipped). Add a **`.env`** file only if you want to override with real credentials (same keys as in `.env.example`; `.env` is gitignored and takes precedence).
+
 ## Features
 
 - Scraping connector (`requests`, `BeautifulSoup`) and transform layer with stable `item_hash`
@@ -36,6 +38,7 @@ Python 3.11 · Airflow 2.10.x (see `Dockerfile.airflow`) · Postgres · SQLite �
 - Docker and Docker Compose (for Airflow + app Postgres)
 - Python 3.11+ (for local ETL, tests, Streamlit)
 - Optional: AWS account and S3 bucket for staging and Lambda
+- **Configuration:** Docker uses `.env.example` by default. Create `.env` only to set real AWS keys and `S3_BUCKET` (optional). For Streamlit, use `DATABASE_URL` or copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`.
 
 ## Run the ETL locally (no Airflow)
 
@@ -66,7 +69,7 @@ Outputs: `patiotuerca.json`, `patiotuerca.sqlite`, and rows in Postgres table `p
 ```bash
 docker compose down -v
 docker compose build --no-cache
-docker compose up airflow-init
+docker compose run --rm airflow-init
 docker compose up -d
 ```
 
@@ -90,14 +93,14 @@ Connection: `localhost`, port **5434**, database `portfolio`, user `app_user`, p
 
 ## Amazon S3
 
-Airflow loads AWS settings from `.env` (see Compose `env_file` for scheduler/webserver). Variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `S3_BUCKET`.
+Airflow reads **`.env.example`** first, then an optional **`.env`** (duplicate keys in `.env` win). Variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `S3_BUCKET`.
 
 Objects written by the DAG:
 
 - `patiotuerca/raw/<timestamp>.json`
 - `patiotuerca/processed/<timestamp>.json`
 
-Restart Airflow services after editing `.env`.
+Restart Airflow services after changing `.env`. (Optional second env file requires Docker Compose **v2.24+**.)
 
 ### Lambda (optional)
 
@@ -107,13 +110,13 @@ Package `lambda/s3_validate_transform/lambda_function.py` for an S3 `ObjectCreat
 
 ```bash
 pip install -r requirements-streamlit.txt
-export DATABASE_URL=postgresql+psycopg2://app_user:app_pass@127.0.0.1:5434/portfolio   # bash
+export DATABASE_URL=postgresql+psycopg2://app_user:app_pass@127.0.0.1:5434/portfolio
 streamlit run streamlit_app/app.py
 ```
 
-Windows: `set DATABASE_URL=...` before `streamlit run`.
+Windows: `set DATABASE_URL=postgresql+psycopg2://app_user:app_pass@127.0.0.1:5434/portfolio` before `streamlit run`.
 
-Connection resolution order: environment variable `DATABASE_URL`, then Streamlit secrets key `DATABASE_URL`, then a local default. Optional: `PATIOTUERCA_TABLE` (default `patiotuerca_vehicles`). For Amazon RDS, use the same SQLAlchemy URL form with the instance endpoint and credentials.
+Connection resolution order: environment variable `DATABASE_URL`, then Streamlit secrets key `DATABASE_URL`, then a local default. Optional: `PATIOTUERCA_TABLE` (default `patiotuerca_vehicles`). Template for secrets: `.streamlit/secrets.toml.example` → `.streamlit/secrets.toml`. For Amazon RDS, use the same SQLAlchemy URL form with the instance endpoint and credentials.
 
 ## Continuous integration
 
@@ -127,13 +130,37 @@ Workflow `.github/workflows/ci.yml` on push and pull request to `master`:
 
 ```bash
 pip install -r requirements-dev.txt pandas
-set PYTHONPATH=.    # Windows
-# export PYTHONPATH=.   # Unix
+set PYTHONPATH=.
+# export PYTHONPATH=.
 pytest -q
 ruff check src dags main.py tests lambda
 ruff format --check src dags main.py tests lambda
 ```
 
-## Security
+## Full stack (one copy-paste)
 
-Do not commit `.env` or `.streamlit/secrets.toml`. Restrict IAM policies to the bucket paths you use; prefer short-lived or scoped credentials over broad root keys.
+From the **repository root** in **Git Bash, WSL, or macOS/Linux** with Docker running. Seeds data with `main.py` and opens Streamlit (stop Streamlit with Ctrl+C).
+
+```bash
+docker compose down -v
+docker compose build --no-cache
+docker compose run --rm airflow-init
+docker compose up -d
+sleep 25
+docker compose exec -T app-postgres psql -U app_user -d postgres -c "CREATE DATABASE portfolio;" || true
+
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -q -r requirements.txt -r requirements-streamlit.txt
+export PYTHONPATH=.
+python main.py --max_urls_counter=1 --max_data_length=10 \
+  --sqlite_db_url sqlite:///patiotuerca.sqlite \
+  --postgres_db_url postgresql+psycopg2://app_user:app_pass@127.0.0.1:5434/portfolio \
+  --table_name patiotuerca_vehicles
+export DATABASE_URL=postgresql+psycopg2://app_user:app_pass@127.0.0.1:5434/portfolio
+streamlit run streamlit_app/app.py
+```
+
+Airflow UI: `http://127.0.0.1:8081` (`airflow` / `airflow`). Unpause and trigger `etl_patiotuerca` there if you want the scheduled pipeline path.
+
+**Windows (PowerShell):** use **Git Bash** for the block above, or run **Run with Airflow** → **Application PostgreSQL** (create `portfolio`) → **Run the ETL locally** → **Streamlit** in order.
